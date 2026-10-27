@@ -174,8 +174,7 @@ const createMock = ()=>{
       s.status='connected'; s.since=Date.now(); s.serverName=selected.name; fire(); },
     async disconnect(){ s.status='disconnected'; s.since=null; fire(); },
     async state(){ return { ...s, serverName:selected.name }; },
-    /* 兼容两种写法：on('state', cb) 与 on(cb) */
-    on(evt, cb){ listeners.push(typeof evt === 'function' ? evt : cb); },
+    on(cb){ listeners.push(cb); },
   };
 };
 const BRIDGE = window.__BRIDGE__ || createMock();
@@ -200,10 +199,9 @@ function applySnapshot(s){
   }
 }
 
-/* 事件只是“通知”，真相以 state() 为准。
-   订阅必须带上事件名 'state'，否则真壳不会回调。 */
+/* 事件只是“通知”，真相以 state() 为准 */
 const onStateChange = ()=>{ BRIDGE.state().then(applySnapshot, ()=>{}); };
-BRIDGE.on('state', onStateChange);
+BRIDGE.on(onStateChange);
 
 /* ══ 以下全是租户可改的界面逻辑 ══ */
 const SERVERS=[
