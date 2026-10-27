@@ -174,7 +174,8 @@ const createMock = ()=>{
       s.status='connected'; s.since=Date.now(); s.serverName=selected.name; fire(); },
     async disconnect(){ s.status='disconnected'; s.since=null; fire(); },
     async state(){ return { ...s, serverName:selected.name }; },
-    on(cb){ listeners.push(cb); },
+    /* 兼容两种写法：on('state', cb) 与 on(cb) */
+    on(evt, cb){ listeners.push(typeof evt === 'function' ? evt : cb); },
   };
 };
 const BRIDGE = window.__BRIDGE__ || createMock();
@@ -199,8 +200,10 @@ function applySnapshot(s){
   }
 }
 
-/* 事件只是“通知”，真相以 state() 为准 */
-BRIDGE.on(()=>{ BRIDGE.state().then(applySnapshot, ()=>{}); });
+/* 事件只是“通知”，真相以 state() 为准。
+   订阅必须带上事件名 'state'，否则真壳不会回调。 */
+const onStateChange = ()=>{ BRIDGE.state().then(applySnapshot, ()=>{}); };
+BRIDGE.on('state', onStateChange);
 
 /* ══ 以下全是租户可改的界面逻辑 ══ */
 const SERVERS=[
@@ -230,6 +233,7 @@ $('servers').onclick = e=>{
 
 pwr.onclick = ()=>{
   if(snap.status==='connected') return BRIDGE.disconnect();
+  if(snap.status==='connecting') return;
   clearNotice();
   BRIDGE.connect({serverId:selected.id});
 };
@@ -242,12 +246,24 @@ function render(){
     ? `<span class="timer">${fmt(snap.since)}</span> · ${selected.flag} ${selected.name}`
     : s==='connecting' ? `正在连接 ${selected.name}` : `${selected.flag} ${selected.name} · ${selected.ping} ms`;
   prog.style.strokeDashoffset = s==='connected'?0:s==='connecting'?180:326.7;
+  syncTick();
 }
 function fmt(t){ if(!t) return '00:00:00'; const s=Math.floor((Date.now()-t)/1000);
   return [s/3600|0,(s/60|0)%60,s%60].map(n=>String(n).padStart(2,'0')).join(':'); }
-function tick(){ if(snap.status==='connected'){ render(); setTimeout(tick,1000);} }
+
+/* 计时器：只在“已连接且无错误”时跑一条链，避免重复叠加 */
+let tickTimer = null;
+function syncTick(){
+  const want = snap.status==='connected' && !snap.error;
+  if(want){
+    if(!tickTimer) tickTimer = setTimeout(()=>{ tickTimer = null; render(); }, 1000);
+  } else if(tickTimer){
+    clearTimeout(tickTimer); tickTimer = null;
+  }
+}
+
 function show(k,title,body){ noticeEl.style.display='block'; noticeEl.dataset.k=k;
-  noticeEl.innerHTML=`<b>${title}</b><br>${body}`; stateEl.textContent=title; subEl.textContent=''; pwr.dataset.s='error'; pwr.textContent='重试'; }
+  noticeEl.innerHTML=`<b>${title}</b><br>${body}`; stateEl.textContent=title; subEl.textContent=''; pwr.dataset.s='error'; pwr.textContent='重试'; syncTick(); }
 function clearNotice(){ noticeEl.style.display='none'; }
 
 /* 每次加载/刷新必须问一次 state()：事件不会重放 */
